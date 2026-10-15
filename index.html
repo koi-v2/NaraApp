@@ -28,7 +28,7 @@ const fixedPotions=[
 const defaults={characters:[],guilds:[],shop:[],logs:[],chronicle:[],relationships:[],quests:[],events:[],locations:[{id:'town',name:'Kota Awal',type:'town',description:'Tempat aman untuk istirahat dan berbelanja.',unlocked:true},{id:'forest',name:'Hutan Lumina',type:'field',description:'Area berburu monster dan mencari material.',unlocked:true},{id:'mine',name:'Tambang Tua',type:'gather',description:'Tempat mengumpulkan bahan dan gold.',unlocked:true},{id:'guildhall',name:'Guild Hall',type:'guild',description:'Tempat anggota guild berkumpul.',unlocked:true}],running:false,settings:{cycleSeconds:8,logLimit:500},parties:[]};
 let state=loadState(),timer=null,currentPage='characters',selectedChar=null;
 function loadState(){try{const x=JSON.parse(localStorage.getItem(KEY));if(x&&Array.isArray(x.characters))return {...defaults,...x,guilds:Array.isArray(x.guilds)?x.guilds:[],chronicle:Array.isArray(x.chronicle)?x.chronicle:[],relationships:Array.isArray(x.relationships)?x.relationships:[],quests:Array.isArray(x.quests)?x.quests:[],events:Array.isArray(x.events)?x.events:[],locations:Array.isArray(x.locations)&&x.locations.length?x.locations:defaults.locations,settings:{...defaults.settings,...x.settings},shop:[...fixedPotions,...(x.shop||[]).filter(i=>!['hp_potion','mp_potion'].includes(i.id))]}}catch(e){}return structuredClone(defaults)}
-function save(){localStorage.setItem(KEY,JSON.stringify(state));renderHeader()}
+function save(){state.lastSavedAt=Date.now();localStorage.setItem(KEY,JSON.stringify(state));renderHeader()}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 function uid(){return Math.random().toString(36).slice(2,9)}
 function number(v,d=0){return Math.max(0,Number(v)||d)}
@@ -164,7 +164,7 @@ document.getElementById('importBtn').addEventListener('click',()=>document.getEl
 document.getElementById('importFile').addEventListener('change',e=>{if(e.target.files[0])importData(e.target.files[0]);e.target.value=''});
 // Ensure system potions remain permanent and available.
 state.shop=[...fixedPotions,...state.shop.filter(i=>!['hp_potion','mp_potion'].includes(i.id))];state.shop[0].locked=true;state.shop[1].locked=true;
-if(state.running){state.running=false;save()}state.characters.forEach(checkAchievements);render();
+if(state.running){state.running=false;save()}if(state.lastSavedAt&&state.characters.length){const elapsed=Math.max(0,Date.now()-Number(state.lastSavedAt)),secs=Math.max(3,Number(state.settings.cycleSeconds)||8),cycles=Math.min(30,Math.floor(elapsed/(secs*1000)));if(cycles>0){for(let i=0;i<cycles;i++){[...state.characters].sort(()=>Math.random()-.5).forEach(c=>{if(Math.random()<.9)aiAct(c);checkAchievements(c)})}addLog('Simulasi catch-up: '+cycles+' siklus virtual diproses setelah jeda '+Math.floor(elapsed/60000)+' menit.','system');addChronicle('Dunia melanjutkan '+cycles+' siklus virtual setelah admin kembali.','world')}}state.lastSavedAt=Date.now();state.characters.forEach(checkAchievements);render();
 </script>
 </body>
 </html>
