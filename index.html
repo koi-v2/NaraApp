@@ -274,7 +274,7 @@ function relationshipAction(id,action){
   if(state.characters.some(c=>String(c.name||'').trim().toLowerCase()===name.trim().toLowerCase())){alert('Nama itu sudah dipakai karakter lain. Pilih nama yang berbeda.');return}
   const avg=(key,base)=>Math.max(1,Math.round(((Number(a[key])||base)+(Number(b[key])||base))/2));
   const child={id:uid(),name:name.trim(),level:1,age:0,hp:100,maxHp:100,mp:50,maxMp:50,atk:avg('atk',5),def:avg('def',5),mag:avg('mag',5),spd:avg('spd',5),agi:avg('agi',5),gold:0,retired:false,dead:false,status:'Anak',role:'Adventurer',lastAction:'Baru lahir',parentIds:[a.id,b.id],familyName:a.familyName||a.surname||a.name.split(/\s+/).slice(-1)[0],createdAt:Date.now()};
-  state.characters.push(child);r.children.push(child.id);r.affection=Math.min(100,(Number(r.affection)||0)+5);
+  state.characters.push(child);registerFamilyChild(child,a,b);r.children.push(child.id);r.affection=Math.min(100,(Number(r.affection)||0)+5);
   state.familyEvents.push({at:Date.now(),text:child.name+' lahir sebagai anak '+a.name+' dan '+b.name+'.'});
   addLog(child.name+' lahir dalam keluarga '+a.name+' dan '+b.name+'.','family');
  }else if(action==='end'){
@@ -746,6 +746,44 @@ function dynastyForCharacter(c){
  c.dynastyId=d.id;c.familyName=d.name;
  return d;
 }
+function registerFamilyChild(child,parentA,parentB){
+ if(!child||!parentA||!parentB)return;
+ ensureDynastySystems();
+ state.legacy=state.legacy&&typeof state.legacy==='object'?state.legacy:{retired:[],lineages:[],mentors:[]};
+ state.legacy.lineages=Array.isArray(state.legacy.lineages)?state.legacy.lineages:[];
+ child.parentIds=Array.isArray(child.parentIds)?child.parentIds:[parentA.id,parentB.id];
+ child.ancestorId=child.ancestorId||parentA.id;
+ child.generation=Math.max(2,Number(child.generation)||Math.max(Number(parentA.generation)||1,Number(parentB.generation)||1)+1);
+ const parentDynasty=parentA.dynastyId?state.dynasties.find(d=>d.id===parentA.dynastyId):null;
+ const otherDynasty=parentB.dynastyId?state.dynasties.find(d=>d.id===parentB.dynastyId):null;
+ let dynasty=parentDynasty||otherDynasty;
+ if(!dynasty){
+  const seed=parentA.familyName||parentA.surname||parentA.name;
+  dynasty=dynastyForCharacter({...parentA,dynastyId:null,familyName:seed});
+  // Keep the real parent's dynasty assignment in sync.
+  parentA.dynastyId=dynasty.id;parentA.familyName=dynasty.name;
+ }
+ if(dynasty){
+  child.dynastyId=dynasty.id;child.familyName=dynasty.name;
+  if(!Array.isArray(dynasty.members))dynasty.members=[];
+  if(!dynasty.members.includes(child.id))dynasty.members.push(child.id);
+  [parentA,parentB].forEach(p=>{if(p){p.dynastyId=p.dynastyId||dynasty.id;if(!Array.isArray(dynasty.members))dynasty.members=[];if(!dynasty.members.includes(p.id))dynasty.members.push(p.id)}});
+ }
+ const exists=state.legacy.lineages.some(x=>x.childId===child.id);
+ if(!exists)state.legacy.lineages.unshift({at:new Date().toISOString(),parentId:parentA.id,parentName:parentA.name,otherParentId:parentB.id,otherParentName:parentB.name,childId:child.id,childName:child.name,generation:child.generation,source:'family',dynastyId:child.dynastyId||null,legacyText:'Anak kandung '+parentA.name+' dan '+parentB.name+'; tercatat otomatis dalam silsilah keluarga.'});
+ state.legacy.lineages=state.legacy.lineages.slice(0,1000);
+ state.familyEvents=Array.isArray(state.familyEvents)?state.familyEvents:[];
+ if(!state.familyEvents.some(e=>e.childId===child.id))state.familyEvents.push({at:Date.now(),childId:child.id,text:child.name+' tercatat dalam generasi ke-'+child.generation+' dari keluarga '+(child.familyName||parentA.name)+'.'});
+}
+function syncFamilyLineages(){
+ ensureDynastySystems();
+ state.legacy=state.legacy&&typeof state.legacy==='object'?state.legacy:{retired:[],lineages:[],mentors:[]};
+ state.legacy.lineages=Array.isArray(state.legacy.lineages)?state.legacy.lineages:[];
+ state.characters.filter(c=>Array.isArray(c.parentIds)&&c.parentIds.length>=2).forEach(child=>{
+  const a=state.characters.find(c=>c.id===child.parentIds[0]),b=state.characters.find(c=>c.id===child.parentIds[1]);
+  if(a&&b)registerFamilyChild(child,a,b);
+ });
+}
 function dynastyCycle(){
  ensureDynastySystems();
  state.characters.forEach(c=>{if(c&&!c.retired){const d=dynastyForCharacter(c);d.renown=Math.max(0,(d.renown||0)+Math.floor(Math.max(0,(c.level||1)-1)/10));}});
@@ -799,7 +837,7 @@ function createSuccessor(){
  if(!name){alert('Masukkan nama penerus.');return}if(!parent){alert('Leluhur tidak ditemukan.');return}
  state.legacy=state.legacy&&typeof state.legacy==='object'?state.legacy:{retired:[],lineages:[],mentors:[]};
  const child={id:uid(),name,role:'Penerus '+parent.role,level:1,maxHp:Math.max(70,Math.floor(parent.maxHp*.65)),maxMp:Math.max(15,Math.floor(parent.maxMp*.65)),hp:Math.max(70,Math.floor(parent.maxHp*.65)),mp:Math.max(15,Math.floor(parent.maxMp*.65)),atk:Math.max(5,Math.floor(parent.atk*.55)),def:Math.max(3,Math.floor(parent.def*.55)),mag:Math.max(3,Math.floor((parent.mag||5)*.55)),agi:Math.max(3,Math.floor((parent.agi||5)*.7)),gold:Math.min(150,Math.floor((parent.gold||0)*.08)),xp:0,photo:'',personality:'Mewarisi kisah '+parent.name+'; tumbuh dengan jalan hidupnya sendiri.',aiStyle:style,aiGoal:parent.aiGoal||'balanced',inventory:[],equipment:{weapon:null,armor:null,accessory:null},locationId:'town',status:'Bebas',lastAction:'Memulai perjalanan sebagai penerus '+parent.name,created:new Date().toISOString(),generation:(parent.generation||1)+1,ancestorId:parent.id,legacyTitles:(parent.titles||[]).slice(0,3),brain:{goal:parent.brain?.goal||parent.aiGoal||'balanced',confidence:45,stress:8,loyalty:50,curiosity:60,decisionCount:0,lastDecision:'Memulai jalan hidup sendiri dengan bekal warisan keluarga.',growth:0,values:[]},brainHistory:[]};
- state.characters.push(child);state.legacy.lineages.unshift({at:new Date().toISOString(),parentId:parent.id,parentName:parent.name,childId:child.id,childName:child.name,generation:child.generation,legacyText:'Mewarisi sebagian atribut, kecenderungan, dan kenangan '+parent.name+'.'});
+ state.characters.push(child);const parentDyn=dynastyForCharacter(parent);child.dynastyId=parentDyn.id;child.familyName=parentDyn.name;if(!parentDyn.members.includes(child.id))parentDyn.members.push(child.id);state.legacy.lineages.unshift({at:new Date().toISOString(),parentId:parent.id,parentName:parent.name,childId:child.id,childName:child.name,generation:child.generation,source:'successor',dynastyId:parentDyn.id,legacyText:'Penerus yang dibuat melalui Generasi & Warisan dari '+parent.name+'.'});
  state.legacy.lineages=state.legacy.lineages.slice(0,200);storyCharacter(parent,'menjadi leluhur bagi generasi baru: '+child.name+'.','Warisan');storyCharacter(child,'memulai perjalanan dengan warisan dari '+parent.name+'.','Generasi');addChronicle(child.name+' memulai generasi baru sebagai penerus '+parent.name+'.','legacy');addLog('Penerus baru dibuat: '+child.name+' dari garis keturunan '+parent.name+'.','legacy',child.id);closeModal();save();currentPage='legacy';render();
 }
 function retirePrompt(){
