@@ -266,8 +266,20 @@ function relationshipAction(id,action){
  }else if(action==='marry'&&r.status==='Tunangan'){
   if((Number(r.affection)||0)<50){alert('Kedekatan minimal 50 diperlukan untuk menikah. Lakukan quality time dulu.');return}
   if(!confirm('Konfirmasi pernikahan '+a.name+' dan '+b.name+'?'))return;
+  const groomName=prompt('Siapa karakter laki-laki (nama persis)?\\n'+a.name+'\\n'+b.name);if(!groomName)return;
+  const groom=[a,b].find(c=>String(c.name||'').trim().toLowerCase()===groomName.trim().toLowerCase());
+  if(!groom){alert('Nama karakter laki-laki harus sama persis dengan salah satu pasangan.');return}
+  const bride=groom.id===a.id?b:a;
   r.status='Menikah';r.marriedAt=Date.now();r.affection=Math.min(100,(Number(r.affection)||0)+20);a.spouseId=b.id;b.spouseId=a.id;
-  state.familyEvents.push({at:Date.now(),text:a.name+' dan '+b.name+' resmi menikah.'});
+  const groomDynasty=dynastyForCharacter(groom);
+  const oldBrideDynasty=bride.dynastyId?state.dynasties.find(d=>d.id===bride.dynastyId):null;
+  if(oldBrideDynasty&&oldBrideDynasty.id!==groomDynasty.id)oldBrideDynasty.members=(oldBrideDynasty.members||[]).filter(id=>id!==bride.id);
+  bride.dynastyId=groomDynasty.id;bride.familyName=groomDynasty.name;
+  if(!Array.isArray(groomDynasty.members))groomDynasty.members=[];
+  if(!groomDynasty.members.includes(groom.id))groomDynasty.members.push(groom.id);
+  if(!groomDynasty.members.includes(bride.id))groomDynasty.members.push(bride.id);
+  r.groomId=groom.id;r.brideId=bride.id;r.dynastyId=groomDynasty.id;
+  state.familyEvents.push({at:Date.now(),text:a.name+' dan '+b.name+' resmi menikah. '+bride.name+' bergabung ke Dinasti '+groomDynasty.name+' milik '+groom.name+'.'});
  }else if(action==='child'&&r.status==='Menikah'){
   if((Number(r.affection)||0)<40){alert('Kedekatan pasangan minimal 40 untuk merencanakan anak.');return}
   const name=prompt('Nama anak mereka:');if(!name||!name.trim())return;
