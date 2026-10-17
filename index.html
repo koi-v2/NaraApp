@@ -924,7 +924,57 @@ function isActivityBanned(c){const p=activePunishment(c);return !!p&&/larangan a
 function isCharacterRestricted(c){return isImprisoned(c)||isActivityBanned(c)}
 function lawCycle(){ensureWorldExtra();state.punishments.forEach(p=>{if(!p.active)return;p.cyclesLeft=Math.max(0,(Number(p.cyclesLeft)||1)-1);if(!p.cyclesLeft){p.active=false;addChronicle('Hukuman '+p.type+' untuk '+p.characterName+' berakhir.','law');addLog('Hukuman '+p.type+' untuk '+p.characterName+' berakhir; karakter kembali bebas beraktivitas.','law',p.characterId)}})}
 
-function cycle(){advanceWorldCalendar();lawCycle();if(!state.characters.length){addLog('Simulasi menunggu: tambahkan karakter terlebih dahulu.','system');return}worldEnsure();towerEnsure();towerAutoCycle();towerPartyCycle();autoFormParties();ensureGuildRecruitment();guildRecruitmentCycle();dynastyCycle();guildWarCycle();brainWorldCycle();const shuffled=[...state.characters].filter(c=>!c.retired).sort(()=>Math.random()-.5);shuffled.forEach(c=>{if(isCharacterRestricted(c)){lifeCycle(c);return}guildJoinCycle(c);const previous=c.lastAction;lifeCycle(c);if(Math.random()<.16)openWorldEncounter(c);if(Math.random()<.9)aiAct(c);autoCrimeCycle(c);brainAfterAction(c,previous);updateRenownFromCharacter(c);if(c.lastAction&&c.lastAction!==previous&&Math.random()<.12)storyCharacter(c,'melakukan aktivitas: '+c.lastAction+'.','Aktivitas')});rivalMeetings();bossCycle();territoryCycle();factionCycle();maybeWorldEvent();businessCycle();captureWorldHistory();save();if(currentPage!=='settings')render()}
+function romanceAutoCycle(){
+ ensureRelationships();
+ const adults=state.characters.filter(c=>c&&!c.retired&&!c.dead&&Number(c.age??18)>=18);
+ const paired=new Set();
+ state.relationships.filter(r=>r.status!=='Berakhir').forEach(r=>{paired.add(r.a);paired.add(r.b)});
+ // Single adults may meet and begin dating naturally.
+ const singles=adults.filter(c=>!paired.has(c.id));
+ if(singles.length>=2&&Math.random()<0.12){
+  const firstIndex=Math.floor(Math.random()*singles.length),a=singles[firstIndex];
+  const candidates=singles.filter(c=>c.id!==a.id&&(!c.gender||c.gender!==a.gender||c.gender==='other'));
+  if(candidates.length){
+   const b=candidates[Math.floor(Math.random()*candidates.length)];
+   const r={id:uid(),a:a.id,b:b.id,status:'Pacaran',affection:10+Math.floor(Math.random()*16),children:[],startedAt:Date.now(),history:[{status:'Pacaran',at:Date.now(),automatic:true}],automatic:true};
+   state.relationships.push(r);
+   state.familyEvents.push({at:Date.now(),text:'💞 '+a.name+' dan '+b.name+' mulai pacaran setelah sering bertemu secara otomatis.'});
+   addLog(a.name+' dan '+b.name+' mulai pacaran secara otomatis.','family');
+   paired.add(a.id);paired.add(b.id);
+  }
+ }
+ state.relationships.filter(r=>r.status!=='Berakhir'&&r.automatic).forEach(r=>{
+  const a=state.characters.find(c=>c.id===r.a),b=state.characters.find(c=>c.id===r.b);
+  if(!a||!b||a.dead||b.dead||a.retired||b.retired)return;
+  if(Math.random()<0.32)r.affection=Math.min(100,(Number(r.affection)||0)+1+Math.floor(Math.random()*3));
+  const logStage=(stage,text)=>{r.status=stage;r.history=Array.isArray(r.history)?r.history:[];r.history.push({status:stage,at:Date.now(),automatic:true});state.familyEvents.push({at:Date.now(),text});addLog(text,'family');};
+  if(r.status==='Pacaran'&&r.affection>=30&&Math.random()<0.08)logStage('Tunangan','💍 '+a.name+' dan '+b.name+' otomatis bertunangan.');
+  if(r.status==='Tunangan'&&r.affection>=50&&Math.random()<0.05){
+   const groom=a.gender==='male'?a:b.gender==='male'?b:(Math.random()<0.5?a:b);
+   const bride=groom.id===a.id?b:a;
+   const d=dynastyForCharacter(groom);
+   const old=bride.dynastyId?state.dynasties.find(x=>x.id===bride.dynastyId):null;
+   if(old&&old.id!==d.id)old.members=(old.members||[]).filter(id=>id!==bride.id);
+   bride.dynastyId=d.id;bride.familyName=d.name;
+   if(!d.members.includes(bride.id))d.members.push(bride.id);
+   if(!d.members.includes(groom.id))d.members.push(groom.id);
+   a.spouseId=b.id;b.spouseId=a.id;r.groomId=groom.id;r.brideId=bride.id;r.dynastyId=d.id;r.marriedAt=Date.now();
+   logStage('Menikah','💒 '+a.name+' dan '+b.name+' otomatis menikah. '+bride.name+' bergabung ke Dinasti '+d.name+'.');
+  }
+  if(r.status==='Menikah'&&r.affection>=55&&r.children.length===0&&Number(a.age??18)>=18&&Number(b.age??18)>=18&&Math.random()<0.006){
+   const baseName=(a.name||'Anak')+' '+(b.name||'');
+   let childName='Anak '+(r.children.length+1)+' '+(a.familyName||a.name||'Keluarga');
+   if(state.characters.some(c=>String(c.name||'').toLowerCase()===childName.toLowerCase()))childName=baseName+' Junior '+Math.floor(Math.random()*9999);
+   const avg=(key,base)=>Math.max(1,Math.round(((Number(a[key])||base)+(Number(b[key])||base))/2));
+   const child={id:uid(),name:childName,gender:['male','female'][Math.floor(Math.random()*2)],level:1,age:0,hp:100,maxHp:100,mp:50,maxMp:50,atk:avg('atk',5),def:avg('def',5),mag:avg('mag',5),spd:avg('spd',5),agi:avg('agi',5),gold:0,retired:false,dead:false,status:'Anak',role:'Adventurer',lastAction:'Baru lahir',parentIds:[a.id,b.id],generation:Math.max(Number(a.generation)||1,Number(b.generation)||1)+1,familyName:groomFamilyName(a,b),createdAt:Date.now()};
+   state.characters.push(child);registerFamilyChild(child,a,b);r.children.push(child.id);r.affection=Math.min(100,r.affection+5);
+   state.familyEvents.push({at:Date.now(),text:'👶 '+child.name+' lahir sebagai anak '+a.name+' dan '+b.name+'.'});
+   addLog(child.name+' lahir secara otomatis dari keluarga '+a.name+' dan '+b.name+'.','family');
+  }
+ });
+}
+function groomFamilyName(a,b){const groom=a.gender==='male'?a:b.gender==='male'?b:a;return groom.familyName||groom.surname||groom.name||'Keluarga';}
+function cycle(){advanceWorldCalendar();romanceAutoCycle();lawCycle();if(!state.characters.length){addLog('Simulasi menunggu: tambahkan karakter terlebih dahulu.','system');return}worldEnsure();towerEnsure();towerAutoCycle();towerPartyCycle();autoFormParties();ensureGuildRecruitment();guildRecruitmentCycle();dynastyCycle();guildWarCycle();brainWorldCycle();const shuffled=[...state.characters].filter(c=>!c.retired).sort(()=>Math.random()-.5);shuffled.forEach(c=>{if(isCharacterRestricted(c)){lifeCycle(c);return}guildJoinCycle(c);const previous=c.lastAction;lifeCycle(c);if(Math.random()<.16)openWorldEncounter(c);if(Math.random()<.9)aiAct(c);autoCrimeCycle(c);brainAfterAction(c,previous);updateRenownFromCharacter(c);if(c.lastAction&&c.lastAction!==previous&&Math.random()<.12)storyCharacter(c,'melakukan aktivitas: '+c.lastAction+'.','Aktivitas')});rivalMeetings();bossCycle();territoryCycle();factionCycle();maybeWorldEvent();businessCycle();captureWorldHistory();save();if(currentPage!=='settings')render()}
 function startSim(){if(state.running)return;state.running=true;save();timer=setInterval(cycle,Math.max(3,state.settings.cycleSeconds)*1000);render()}
 function stopSim(){state.running=false;if(timer)clearInterval(timer);timer=null;save();render()}
 function runDungeon(id){if(!state.characters.length){alert('Tambahkan karakter dulu.');return}showModal('<h3>Kirim karakter · '+dungeonData[id].name+'</h3><p class="muted small">Pilih siapa yang akan mencoba dungeon ini.</p><div class="card">'+state.characters.map(c=>'<div class="itemline"><div><b>'+esc(c.name)+'</b><div class="muted small">Lv '+c.level+' · HP '+c.hp+'/'+c.maxHp+'</div></div><button onclick="manualDungeon(\''+c.id+'\',\''+id+'\')">Kirim</button></div>').join('')+'</div><div class="modalfoot"><button onclick="closeModal()">Tutup</button></div>')}
