@@ -218,11 +218,85 @@ function resolveFatality(c,context,baseChance){
  addChronicle(c.name+' meninggal saat '+context+'. Namanya tercatat dalam sejarah dunia.','death');
  return true;
 }
-function ensureRelationships(){state.relationships=Array.isArray(state.relationships)?state.relationships:[];state.familyEvents=Array.isArray(state.familyEvents)?state.familyEvents:[]}
-function renderRelationships(){ensureRelationships();return '<div class="section-head"><div><h2>💞 Hubungan & Keluarga</h2><p class="muted small">Pacaran → tunangan → menikah → punya anak.</p></div></div><div class="card"><button class="primary" onclick="relationshipStart()">💗 Mulai pacaran</button><button onclick="relationshipAdvance()">⏳ Tingkatkan kedekatan</button></div><div class="card"><h3>Hubungan</h3>'+(state.relationships.filter(r=>r.status!=="Berakhir").map(r=>{const a=state.characters.find(c=>c.id===r.a),b=state.characters.find(c=>c.id===r.b);return '<div class="logitem"><b>'+esc(a?.name||'?')+' ♥ '+esc(b?.name||'?')+'</b><p>Status: '+esc(r.status)+' · Kedekatan '+r.affection+'/100</p><p>Anak: '+(r.children||[]).map(id=>esc(state.characters.find(c=>c.id===id)?.name||'Anak')).join(', ')+'</p><button onclick="relationshipAction(\''+r.id+'\',\'engage\')">💍 Tunangan</button><button onclick="relationshipAction(\''+r.id+'\',\'marry\')">💒 Menikah</button><button onclick="relationshipAction(\''+r.id+'\',\'child\')">👶 Punya anak</button><button onclick="relationshipAction(\''+r.id+'\',\'end\')">Akhiri</button></div>'}).join('')||'<p>Belum ada hubungan.</p>')+'</div><div class="card"><h3>Riwayat keluarga</h3>'+(state.familyEvents.slice().reverse().map(e=>'<div class="logitem">'+esc(e.text)+'</div>').join('')||'<p>Belum ada peristiwa.</p>')+'</div>'}
-function relationshipStart(){ensureRelationships();const pool=state.characters.filter(c=>!c.retired&&!c.dead&&Number(c.age||18)>=18&&!state.relationships.some(r=>r.status!=="Berakhir"&&(r.a===c.id||r.b===c.id)));if(pool.length<2){alert('Butuh dua karakter dewasa yang belum punya pasangan.');return}const an=prompt('Nama karakter pertama: '+pool.map(c=>c.name).join(', '));if(!an)return;const a=pool.find(c=>c.name.toLowerCase()===an.trim().toLowerCase());if(!a){alert('Karakter tidak ditemukan.');return}const bn=prompt('Nama karakter kedua: '+pool.filter(c=>c.id!==a.id).map(c=>c.name).join(', '));if(!bn)return;const b=pool.find(c=>c.id!==a.id&&c.name.toLowerCase()===bn.trim().toLowerCase());if(!b){alert('Karakter kedua tidak ditemukan.');return}state.relationships.push({id:uid(),a:a.id,b:b.id,status:'Pacaran',affection:20,children:[]});state.familyEvents.push({at:Date.now(),text:a.name+' dan '+b.name+' mulai pacaran.'});save();render()}
-function relationshipAction(id,action){ensureRelationships();const r=state.relationships.find(x=>x.id===id);if(!r)return;const a=state.characters.find(c=>c.id===r.a),b=state.characters.find(c=>c.id===r.b);if(action==='engage'&&r.status==='Pacaran'){r.status='Tunangan';r.affection=Math.min(100,r.affection+20);state.familyEvents.push({at:Date.now(),text:a.name+' dan '+b.name+' bertunangan.'})}else if(action==='marry'&&r.status==='Tunangan'){r.status='Menikah';r.affection=Math.min(100,r.affection+25);a.spouseId=b.id;b.spouseId=a.id;state.familyEvents.push({at:Date.now(),text:a.name+' dan '+b.name+' menikah.'})}else if(action==='child'&&r.status==='Menikah'){const name=prompt('Nama anak mereka:');if(!name||!name.trim())return;const child={id:uid(),name:name.trim(),level:1,age:0,hp:100,maxHp:100,atk:5,def:5,mag:5,spd:5,gold:0,retired:false,dead:false,status:'Anak',lastAction:'Baru lahir',parentIds:[a.id,b.id],familyName:a.familyName||a.surname||a.name.split(/\\s+/).slice(-1)[0],createdAt:Date.now()};state.characters.push(child);if(!Array.isArray(r.children))r.children=[];r.children.push(child.id);state.familyEvents.push({at:Date.now(),text:'Anak '+a.name+' dan '+b.name+': '+child.name+' lahir.'})}else if(action==='end'){r.status='Berakhir';a.spouseId=null;b.spouseId=null;state.familyEvents.push({at:Date.now(),text:'Hubungan '+a.name+' dan '+b.name+' berakhir.'})}else{alert('Urutan tahap: Pacaran → Tunangan → Menikah → Punya anak.');return}save();render()}
-function relationshipAdvance(){ensureRelationships();const active=state.relationships.filter(r=>r.status!=='Berakhir');if(!active.length){alert('Belum ada hubungan aktif.');return}active.forEach(r=>r.affection=Math.min(100,(r.affection||0)+5));save();render()}
+function ensureRelationships(){
+ state.relationships=Array.isArray(state.relationships)?state.relationships:[];
+ state.familyEvents=Array.isArray(state.familyEvents)?state.familyEvents:[];
+ state.relationships.forEach(r=>{r.affection=Math.max(0,Math.min(100,Number(r.affection)||0));r.children=Array.isArray(r.children)?r.children:[];r.status=r.status||'Pacaran';});
+}
+function relationshipEscName(c){return esc(c?.name||'Karakter tidak ditemukan')}
+function relationshipStageText(r){return r.status==='Pacaran'?'Pacaran':r.status==='Tunangan'?'Tunangan':r.status==='Menikah'?'Menikah':r.status==='Berakhir'?'Berakhir':r.status}
+function renderRelationships(){
+ ensureRelationships();
+ const active=state.relationships.filter(r=>r.status!=='Berakhir');
+ const ended=state.relationships.filter(r=>r.status==='Berakhir');
+ const cards=active.map(r=>{
+  const a=state.characters.find(c=>c.id===r.a),b=state.characters.find(c=>c.id===r.b);
+  const children=r.children.map(id=>state.characters.find(c=>c.id===id)).filter(Boolean);
+  const affection=Math.max(0,Math.min(100,Number(r.affection)||0));
+  let actions='';
+  if(r.status==='Pacaran') actions='<button class="primary" onclick="relationshipAction(\''+r.id+'\',\'engage\')">💍 Tunangan</button>';
+  if(r.status==='Tunangan') actions='<button class="primary" onclick="relationshipAction(\''+r.id+'\',\'marry\')">💒 Menikah</button>';
+  if(r.status==='Menikah') actions='<button class="primary" onclick="relationshipAction(\''+r.id+'\',\'child\')">👶 Punya anak</button>';
+  return '<div class="card"><div class="row" style="justify-content:space-between"><h3>'+relationshipEscName(a)+' ♥ '+relationshipEscName(b)+'</h3><span class="pill">'+esc(relationshipStageText(r))+'</span></div><p class="small muted">Kedekatan '+affection+'/100</p><div class="bar"><i style="width:'+affection+'%"></i></div><p>💞 Bersama sejak: '+esc(r.startedAt?new Date(r.startedAt).toLocaleDateString('id-ID'): 'tanggal tidak tercatat')+'</p><p>👶 Anak ('+children.length+'): '+(children.map(c=>esc(c.name)+' · usia '+Math.max(0,Number(c.age)||0)).join(', ')||'Belum punya anak')+'</p><div class="row">'+actions+'<button onclick="relationshipAdvanceOne(\''+r.id+'\')">💗 Quality time</button><button class="danger" onclick="relationshipAction(\''+r.id+'\',\'end\')">💔 Akhiri</button></div></div>';
+ }).join('');
+ const history=state.familyEvents.slice().reverse().slice(0,100).map(e=>'<div class="logitem"><time>'+(e.at?fmtTime(e.at):'')+'</time>'+esc(e.text||'Peristiwa keluarga')+'</div>').join('');
+ return '<div class="section-head"><div><h2>💞 Hubungan & Keluarga</h2><p class="muted small">Karakter dewasa bisa pacaran, bertunangan, menikah, punya anak, dan membangun garis keturunan.</p></div><button class="primary" onclick="relationshipStart()">💗 Mulai pacaran</button></div><div class="card"><h3>📌 Aturan hubungan</h3><p class="small muted">Hanya karakter berusia 18 tahun ke atas yang bisa memulai hubungan. Setiap karakter hanya boleh punya satu hubungan aktif. Tahapan harus berurutan dan anak menjadi karakter baru dengan data orang tua.</p><button onclick="relationshipAdvance()">💞 Quality time semua pasangan</button></div><h3>Hubungan aktif</h3>'+(cards||'<div class="card muted">Belum ada hubungan aktif. Buat pasangan dari dua karakter dewasa yang belum memiliki pasangan.</div>')+(ended.length?'<div class="card"><h3>💔 Hubungan berakhir</h3>'+ended.slice().reverse().map(r=>{const a=state.characters.find(c=>c.id===r.a),b=state.characters.find(c=>c.id===r.b);return '<div class="logitem">'+relationshipEscName(a)+' & '+relationshipEscName(b)+' · '+esc(r.endReason||'Hubungan berakhir')+'</div>'}).join('')+'</div>':'')+'<div class="card"><h3>📜 Riwayat keluarga</h3>'+(history||'<p class="muted">Belum ada peristiwa keluarga.</p>')+'</div>';
+}
+function relationshipStart(){
+ ensureRelationships();
+ const pool=state.characters.filter(c=>!c.retired&&!c.dead&&Number(c.age??18)>=18&&!state.relationships.some(r=>r.status!=='Berakhir'&&(r.a===c.id||r.b===c.id)));
+ if(pool.length<2){alert('Butuh dua karakter dewasa (usia 18+) yang belum punya pasangan.');return}
+ const an=prompt('Masukkan nama karakter pertama:\n'+pool.map(c=>c.name+' (usia '+Number(c.age??18)+')').join('\n'));if(!an)return;
+ const a=pool.find(c=>String(c.name).toLowerCase()===an.trim().toLowerCase());if(!a){alert('Karakter pertama tidak ditemukan. Gunakan nama persis seperti daftar.');return}
+ const options=pool.filter(c=>c.id!==a.id);const bn=prompt('Masukkan nama karakter kedua:\n'+options.map(c=>c.name+' (usia '+Number(c.age??18)+')').join('\n'));if(!bn)return;
+ const b=options.find(c=>String(c.name).toLowerCase()===bn.trim().toLowerCase());if(!b){alert('Karakter kedua tidak ditemukan. Gunakan nama persis seperti daftar.');return}
+ if(Number(a.age??18)<18||Number(b.age??18)<18){alert('Kedua karakter harus berusia minimal 18 tahun.');return}
+ const r={id:uid(),a:a.id,b:b.id,status:'Pacaran',affection:20,children:[],startedAt:Date.now(),history:[{status:'Pacaran',at:Date.now()}]};
+ state.relationships.push(r);state.familyEvents.push({at:Date.now(),text:a.name+' dan '+b.name+' mulai pacaran.'});addLog(a.name+' dan '+b.name+' mulai pacaran.','family');save();render();
+}
+function relationshipAction(id,action){
+ ensureRelationships();const r=state.relationships.find(x=>x.id===id);if(!r)return;
+ const a=state.characters.find(c=>c.id===r.a),b=state.characters.find(c=>c.id===r.b);
+ if(!a||!b){alert('Data salah satu pasangan tidak ditemukan.');return}
+ if(action==='engage'&&r.status==='Pacaran'){
+  if((Number(r.affection)||0)<30){alert('Kedekatan minimal 30 diperlukan untuk bertunangan. Lakukan quality time dulu.');return}
+  if(!confirm('Konfirmasi: '+a.name+' dan '+b.name+' bertunangan?'))return;
+  r.status='Tunangan';r.affection=Math.min(100,(Number(r.affection)||0)+15);
+  state.familyEvents.push({at:Date.now(),text:a.name+' dan '+b.name+' bertunangan.'});
+ }else if(action==='marry'&&r.status==='Tunangan'){
+  if((Number(r.affection)||0)<50){alert('Kedekatan minimal 50 diperlukan untuk menikah. Lakukan quality time dulu.');return}
+  if(!confirm('Konfirmasi pernikahan '+a.name+' dan '+b.name+'?'))return;
+  r.status='Menikah';r.marriedAt=Date.now();r.affection=Math.min(100,(Number(r.affection)||0)+20);a.spouseId=b.id;b.spouseId=a.id;
+  state.familyEvents.push({at:Date.now(),text:a.name+' dan '+b.name+' resmi menikah.'});
+ }else if(action==='child'&&r.status==='Menikah'){
+  if((Number(r.affection)||0)<40){alert('Kedekatan pasangan minimal 40 untuk merencanakan anak.');return}
+  const name=prompt('Nama anak mereka:');if(!name||!name.trim())return;
+  if(state.characters.some(c=>String(c.name||'').trim().toLowerCase()===name.trim().toLowerCase())){alert('Nama itu sudah dipakai karakter lain. Pilih nama yang berbeda.');return}
+  const avg=(key,base)=>Math.max(1,Math.round(((Number(a[key])||base)+(Number(b[key])||base))/2));
+  const child={id:uid(),name:name.trim(),level:1,age:0,hp:100,maxHp:100,mp:50,maxMp:50,atk:avg('atk',5),def:avg('def',5),mag:avg('mag',5),spd:avg('spd',5),agi:avg('agi',5),gold:0,retired:false,dead:false,status:'Anak',role:'Adventurer',lastAction:'Baru lahir',parentIds:[a.id,b.id],familyName:a.familyName||a.surname||a.name.split(/\s+/).slice(-1)[0],createdAt:Date.now()};
+  state.characters.push(child);r.children.push(child.id);r.affection=Math.min(100,(Number(r.affection)||0)+5);
+  state.familyEvents.push({at:Date.now(),text:child.name+' lahir sebagai anak '+a.name+' dan '+b.name+'.'});
+  addLog(child.name+' lahir dalam keluarga '+a.name+' dan '+b.name+'.','family');
+ }else if(action==='end'){
+  if(!confirm('Akhiri hubungan '+a.name+' dan '+b.name+'? Riwayat serta anak tetap tersimpan.'))return;
+  r.status='Berakhir';r.endedAt=Date.now();r.endReason='Berakhir atas keputusan karakter/pemain';
+  if(a.spouseId===b.id)a.spouseId=null;if(b.spouseId===a.id)b.spouseId=null;
+  state.familyEvents.push({at:Date.now(),text:'Hubungan '+a.name+' dan '+b.name+' berakhir.'});
+ }else{alert('Tahap harus berurutan: Pacaran → Tunangan → Menikah → Punya anak. Kedekatan juga harus mencukupi.');return}
+ if(!Array.isArray(r.history))r.history=[];r.history.push({status:r.status,at:Date.now()});save();render();
+}
+function relationshipAdvanceOne(id){
+ ensureRelationships();const r=state.relationships.find(x=>x.id===id&&x.status!=='Berakhir');if(!r)return;
+ const gain=8+Math.floor(Math.random()*8);r.affection=Math.min(100,(Number(r.affection)||0)+gain);
+ const a=state.characters.find(c=>c.id===r.a),b=state.characters.find(c=>c.id===r.b);
+ state.familyEvents.push({at:Date.now(),text:(a?.name||'?')+' dan '+(b?.name||'?')+' menghabiskan waktu bersama (kedekatan +'+gain+').'});
+ save();render();
+}
+function relationshipAdvance(){
+ ensureRelationships();const active=state.relationships.filter(r=>r.status!=='Berakhir');if(!active.length){alert('Belum ada hubungan aktif.');return}
+ active.forEach(r=>{const gain=5+Math.floor(Math.random()*6);r.affection=Math.min(100,(Number(r.affection)||0)+gain)});
+ state.familyEvents.push({at:Date.now(),text:'Semua pasangan menghabiskan waktu bersama dan mempererat hubungan.'});save();render();
+}
 function renderDeathRecords(){
  state.deathRecords=Array.isArray(state.deathRecords)?state.deathRecords:[];
  return '<div class="section-head"><div><h2>🪦 Catatan Kematian</h2><p class="muted small">Kematian bersifat permanen. Karakter yang meninggal tidak ikut simulasi lagi.</p></div></div><div class="card">'+(state.deathRecords.length?state.deathRecords.map(d=>'<div class="logitem"><time>'+fmtTime(d.at)+'</time><b>☠ '+esc(d.characterName)+'</b><p class="small muted">Lv '+Number(d.level||1)+' · Usia '+Number(d.age||18)+' · '+esc(d.cause||'Penyebab tidak diketahui')+'</p></div>').join(''):'<p class="muted">Belum ada karakter yang meninggal.</p>')+'</div>';
