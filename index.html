@@ -14,7 +14,7 @@
 <body>
 <div class="app">
 <header class="top"><div><div class="brand">NARA<span>APP</span> <span style="color:#fff">/ WORLD</span></div><div class="sub">Autonomous text RPG · Admin dashboard</div></div><div style="display:flex;flex-direction:column;align-items:flex-end;gap:5px"><span class="badge" id="simBadge">SIMULASI BERHENTI</span><span class="pill" id="worldDateBadge">Tahun 1 · Januari 1</span></div></header>
-<section class="hero"><h1>World Control</h1><p>Kamu mengatur dunia dan karakternya. Mereka mengambil keputusan serta beraktivitas sendiri saat simulasi berjalan.</p><div class="stats"><div class="statbox"><b id="totalChars">0</b><small>Karakter</small></div><div class="statbox"><b id="totalGold">0</b><small>Total gold</small></div><div class="statbox"><b id="totalItems">0</b><small>Jenis barang di shop</small></div><div class="statbox"><b id="totalLogs">0</b><small>Catatan aktivitas</small></div></div><div class="row" style="margin-top:14px"><button class="primary" id="toggleSim">▶ Jalankan simulasi</button><button id="tickOnce">⏩ 1 siklus</button><button id="exportBtn">Ekspor data</button><button id="importBtn">Impor data</button><input id="importFile" type="file" accept="application/json" hidden></div></section>
+<section class="hero"><h1>World Control</h1><p>Kamu mengatur dunia dan karakternya. Mereka mengambil keputusan serta beraktivitas sendiri saat simulasi berjalan.</p><div class="stats"><div class="statbox"><b id="totalChars">0</b><small>Karakter</small></div><div class="statbox"><b id="totalGold">0</b><small>Total gold</small></div><div class="statbox"><b id="totalItems">0</b><small>Jenis barang di shop</small></div><div class="statbox"><b id="totalLogs">0</b><small>Catatan aktivitas</small></div></div><div class="row" style="margin-top:14px"><button class="primary" id="toggleSim">▶ Jalankan simulasi</button><button id="tickOnce">⏩ 1 siklus</button><button id="exportBtn">Ekspor data</button><button id="importBtn">Impor data</button><button id="supabaseSyncBtn">☁️ Supabase Sync</button><input id="importFile" type="file" accept="application/json" hidden></div></section>
 <div class="layout"><nav class="nav" id="nav"><details class="nav-group" open><summary>👥 Karakter</summary><button class="active" data-page="characters">♙ Daftar Karakter</button><button data-page="skills">🌳 Skill Tree</button><button data-page="arena">🏟 Arena Tahunan</button></details><details class="nav-group"><summary>🏰 Guild & Party</summary><button data-page="guilds">⚑ Guild</button><button data-page="parties">⚔ Party</button></details><details class="nav-group"><summary>🌍 Dunia</summary><button data-page="world">🗺 Peta Dunia</button><button data-page="territories">🏰 Wilayah</button><button data-page="factions">🌑 Faksi</button><button data-page="boss">🐉 World Boss</button><button data-page="rivals">⚔ Rival</button><button data-page="dungeons">⚔ Dungeon</button><button data-page="quests">📜 Quest/Event</button></details><details class="nav-group"><summary>🧠 Kehidupan AI</summary><button data-page="life">🧠 AI Life</button><button data-page="brain">🧠 Otak AI</button><button data-page="legacy">🧬 Generasi & Warisan</button><button data-page="renown">⭐ Reputasi & Berita</button><button data-page="stories">📚 Kisah</button></details><details class="nav-group"><summary>⚙️ Lainnya</summary><button data-page="business">🏪 Bisnis Karakter</button><button data-page="hall">🏆 Hall of Fame</button><button data-page="itemhistory">📜 Sejarah Barang</button><button data-page="graphs">📈 Grafik Dunia</button><button data-page="artifacts">🏺 Artefak Unik</button><button data-page="law">⚖️ Hukum & Hukuman</button><button data-page="equipment">💎 Equipment</button><button data-page="shop">▤ Shop</button><button data-page="chronicle">📖 Kronik</button><button data-page="logs">☷ Log aktivitas</button><button data-page="settings">⚙ Pengaturan</button></details></nav><main class="content" id="content"></main></div>
 <div class="footer">Prototype menyimpan data di browser/perangkat ini. Ekspor data secara berkala sebagai cadangan.</div>
 </div>
@@ -487,6 +487,55 @@ document.getElementById('tickOnce').addEventListener('click',()=>{cycle();render
 document.getElementById('exportBtn').addEventListener('click',exportData);
 document.getElementById('importBtn').addEventListener('click',()=>document.getElementById('importFile').click());
 document.getElementById('importFile').addEventListener('change',e=>{if(e.target.files[0])importData(e.target.files[0]);e.target.value=''});
+
+const NARA_SUPABASE_FUNCTION_URL='https://kkwduzwfuljdcawuwiku.supabase.co/functions/v1/Nara_App';
+async function supabaseWorldSync(){
+  const choice=prompt('Supabase Sync: ketik SAVE untuk mengirim dunia lokal ke cloud, atau LOAD untuk memuat dunia dari cloud. Batal untuk berhenti.');
+  if(!choice)return;
+  const action=choice.trim().toLowerCase();
+  if(!['save','load'].includes(action)){alert('Pilihan tidak valid. Ketik SAVE atau LOAD.');return}
+  let token=localStorage.getItem('nara_sync_token')||'';
+  token=prompt('Masukkan nilai secret NARA_SYNC_TOKEN yang Tuan buat di Supabase. Token disimpan hanya di browser ini.',token);
+  if(token===null)return;
+  token=token.trim();
+  if(!token){alert('Token tidak boleh kosong.');return}
+  localStorage.setItem('nara_sync_token',token);
+  const btn=document.getElementById('supabaseSyncBtn');
+  btn.disabled=true;btn.textContent='⏳ Menghubungkan...';
+  try{
+    const payload=action==='save'
+      ?{action:'save',world_data:{...state,running:false},world_year:Number(state.worldCalendar?.year)||1}
+      :{action:'load'};
+    const response=await fetch(NARA_SUPABASE_FUNCTION_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-nara-token':token},
+      body:JSON.stringify(payload)
+    });
+    const result=await response.json().catch(()=>({error:'Respons server bukan JSON'}));
+    if(!response.ok)throw new Error(result.error||('HTTP '+response.status));
+    if(action==='save'){
+      alert('Berhasil menyimpan dunia ke Supabase.\nTahun: '+(result.saved?.world_year||1));
+    }else{
+      if(!result.world){alert('Belum ada data dunia di Supabase. Pilih SAVE terlebih dahulu dari perangkat yang memiliki data.');return}
+      const remote=result.world.world_data;
+      if(!remote||!Array.isArray(remote.characters)||!Array.isArray(remote.shop)){
+        throw new Error('Data dunia cloud tidak cocok dengan format NaraApp.');
+      }
+      if(!confirm('Memuat data cloud akan mengganti data lokal di browser ini. Ekspor backup dulu jika perlu. Lanjutkan?'))return;
+      stopSim();
+      localStorage.setItem(KEY,JSON.stringify({...remote,running:false,lastSavedAt:Date.now()}));
+      alert('Data dunia berhasil dimuat. Halaman akan dimuat ulang.');
+      location.reload();
+    }
+  }catch(err){
+    console.error('Supabase sync error:',err);
+    alert('Sinkronisasi gagal: '+(err.message||err)+'\nPeriksa nama fungsi, deployment, dan secret NARA_SYNC_TOKEN.');
+  }finally{
+    btn.disabled=false;btn.textContent='☁️ Supabase Sync';
+  }
+}
+document.getElementById('supabaseSyncBtn').addEventListener('click',supabaseWorldSync);
+
 // Ensure system potions remain permanent and available.
 state.shop=[...fixedPotions,...state.shop.filter(i=>!['hp_potion','mp_potion'].includes(i.id))];state.shop[0].locked=true;state.shop[1].locked=true;
 if(state.running){state.running=false;save()}if(state.lastSavedAt&&state.characters.length){const elapsed=Math.max(0,Date.now()-Number(state.lastSavedAt)),secs=Math.max(3,Number(state.settings.cycleSeconds)||8),cycles=Math.min(30,Math.floor(elapsed/(secs*1000)));if(cycles>0){for(let i=0;i<cycles;i++){[...state.characters].sort(()=>Math.random()-.5).forEach(c=>{if(Math.random()<.9)aiAct(c);checkAchievements(c)})}addLog('Simulasi catch-up: '+cycles+' siklus virtual diproses setelah jeda '+Math.floor(elapsed/60000)+' menit.','system');addChronicle('Dunia melanjutkan '+cycles+' siklus virtual setelah admin kembali.','world')}}state.lastSavedAt=Date.now();state.characters.forEach(checkAchievements);render();
