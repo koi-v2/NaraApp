@@ -3,8 +3,6 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-import org.gradle.api.tasks.Copy
-
 android {
     namespace = "app.nara.world"
     compileSdk = 35
@@ -29,7 +27,7 @@ android {
 
 // Keep the repository's existing index.html as the single source of truth.
 // The APK packages it as a local asset, so the app does not depend on Chrome or hosting.
-tasks.register<Copy>("syncWebApp") {
+tasks.register<org.gradle.api.tasks.Copy>("syncWebApp") {
     from(rootProject.file("index.html"))
     into(layout.projectDirectory.dir("src/main/assets"))
     rename { "index.html" }
