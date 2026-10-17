@@ -225,6 +225,23 @@ function ensureRelationships(){
 }
 function relationshipEscName(c){return esc(c?.name||'Karakter tidak ditemukan')}
 function relationshipStageText(r){return r.status==='Pacaran'?'Pacaran':r.status==='Tunangan'?'Tunangan':r.status==='Menikah'?'Menikah':r.status==='Berakhir'?'Berakhir':r.status}
+function familyTreePanel(){
+ ensureRelationships();
+ const all=[...(state.characters||[]),...((state.legacy&&state.legacy.retired)||[])];
+ const get=id=>all.find(c=>c.id===id);
+ const kids=all.filter(c=>Array.isArray(c.parentIds)&&c.parentIds.length>=2);
+ const roots=all.filter(c=>!Array.isArray(c.parentIds)||!c.parentIds.length);
+ const node=c=>{const parents=(c.parentIds||[]).map(get).filter(Boolean);const children=kids.filter(k=>(k.parentIds||[]).includes(c.id));const spouse=get(c.spouseId);return '<div class="card" style="margin:8px 0"><b>👤 '+esc(c.name||'Tanpa nama')+'</b> <span class="pill">Gen '+Math.max(1,Number(c.generation)||1)+'</span><div class="muted small">Usia '+Math.max(0,Number(c.age)||0)+' · '+esc(c.familyName||'Belum ada dinasti')+'</div><div class="small">Orang tua: '+(parents.map(p=>esc(p.name)).join(' & ')||'—')+'<br>Pasangan: '+(spouse?esc(spouse.name):'—')+'<br>Anak: '+(children.map(k=>esc(k.name)).join(', ')||'—')+'</div></div>';};
+ return '<div class="card"><h3>🌳 Pohon keluarga</h3><p class="muted small">Karakter aktif dan arsip pensiun, termasuk orang tua, pasangan, anak, usia, dan generasi.</p>'+(roots.length?roots.map(node).join(''):'<div class="empty">Belum ada keluarga tercatat.</div>')+'</div>';
+}
+function familyDivorcePrompt(id){
+ const r=state.relationships.find(x=>x.id===id);if(!r||r.status!=='Menikah')return;
+ const a=state.characters.find(c=>c.id===r.a),b=state.characters.find(c=>c.id===r.b);if(!a||!b)return;
+ if(!confirm('Yakin menceraikan '+a.name+' dan '+b.name+'? Anak tetap tercatat dalam silsilah.'))return;
+ r.status='Berakhir';r.endedAt=Date.now();r.endReason='Perceraian';
+ if(a.spouseId===b.id)delete a.spouseId;if(b.spouseId===a.id)delete b.spouseId;
+ state.familyEvents.push({at:Date.now(),text:a.name+' dan '+b.name+' bercerai. Anak tetap tercatat dalam silsilah.'});save();render();
+}
 function renderRelationships(){
  ensureRelationships();
  const active=state.relationships.filter(r=>r.status!=='Berakhir');
@@ -236,7 +253,7 @@ function renderRelationships(){
   let actions='';
   if(r.status==='Pacaran') actions='<button class="primary" onclick="relationshipAction(\''+r.id+'\',\'engage\')">💍 Tunangan</button>';
   if(r.status==='Tunangan') actions='<button class="primary" onclick="relationshipAction(\''+r.id+'\',\'marry\')">💒 Menikah</button>';
-  if(r.status==='Menikah') actions='<button class="primary" onclick="relationshipAction(\''+r.id+'\',\'child\')">👶 Punya anak</button>';
+  if(r.status==='Menikah') actions='<button class="primary" onclick="relationshipAction(\''+r.id+'\',\'child\')">👶 Punya anak</button> <button onclick="familyDivorcePrompt(\''+r.id+'\')">💔 Cerai</button>';
   return '<div class="card"><div class="row" style="justify-content:space-between"><h3>'+relationshipEscName(a)+' ♥ '+relationshipEscName(b)+'</h3><span class="pill">'+esc(relationshipStageText(r))+'</span></div><p class="small muted">Kedekatan '+affection+'/100</p><div class="bar"><i style="width:'+affection+'%"></i></div><p>💞 Bersama sejak: '+esc(r.startedAt?new Date(r.startedAt).toLocaleDateString('id-ID'): 'tanggal tidak tercatat')+'</p><p>👶 Anak ('+children.length+'): '+(children.map(c=>esc(c.name)+' · usia '+Math.max(0,Number(c.age)||0)).join(', ')||'Belum punya anak')+'</p><div class="row">'+actions+'<button onclick="relationshipAdvanceOne(\''+r.id+'\')">💗 Quality time</button><button class="danger" onclick="relationshipAction(\''+r.id+'\',\'end\')">💔 Akhiri</button></div></div>';
  }).join('');
  const history=state.familyEvents.slice().reverse().slice(0,100).map(e=>'<div class="logitem"><time>'+(e.at?fmtTime(e.at):'')+'</time>'+esc(e.text||'Peristiwa keluarga')+'</div>').join('');
